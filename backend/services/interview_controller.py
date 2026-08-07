@@ -50,6 +50,10 @@ class InterviewController:
             "currentDifficulty": decision.get("difficulty"),
             "questionTypesUsed": session.get("questionTypesUsed", []) + [decision.get("question_type")],
             "lastReply": question,
+            # Track the current curriculum day to manage follow-up limits
+            "currentCurriculumDay": decision.get("curriculum_day"),
+            # follow_up_count tracks number of follow-ups used for the currentCurriculumDay
+            "follow_up_count": 0,
         }
         # Update curriculumDaysCovered and topicsCovered
         days = session.get("curriculumDaysCovered", [])
@@ -109,13 +113,16 @@ class InterviewController:
         candidate_context = session.get("candidate_context") or self.candidate_service.build_candidate_context(session.get("candidate"))
         curriculum_context = session.get("curriculum_context") or self.curriculum_service.get_relevant_topics(candidate_context)
 
-        # If evaluator requests follow-up, prefer that
+        # If evaluator requests follow-up, allow at most one follow-up for the current curriculum day
         follow_up_needed = evaluation.get("follow_up_needed", False)
+        follow_up_count = session.get("follow_up_count", 0)
         decision = None
-        if follow_up_needed:
+        if follow_up_needed and follow_up_count == 0:
+            # Allow one follow-up on the current topic
             decision = self.interviewer.decide_next_question(candidate_context, curriculum_context, convo, session, latest_answer_evaluation=evaluation, force_follow_up=True)
         else:
-            decision = self.interviewer.decide_next_question(candidate_context, curriculum_context, convo, session, latest_answer_evaluation=evaluation)
+            # Either no follow-up needed, or we've already done one follow-up -> force progression
+            decision = self.interviewer.decide_next_question(candidate_context, curriculum_context, convo, session, latest_answer_evaluation=evaluation, force_follow_up=False)
 
         # If no decision or no question, finish with feedback if coverage satisfied
         next_question = decision.get("question") if decision else None
@@ -140,9 +147,12 @@ class InterviewController:
             qtypes = session.get("questionTypesUsed", [])
             qtypes.append(decision.get("question_type"))
             session_updates["questionTypesUsed"] = qtypes
+
             # curriculum days/topics
             days = session.get("curriculumDaysCovered", [])
             dnum = decision.get("curriculum_day")
+            # If we moved to a different curriculum day, reset follow_up_count
+            prev_day = session.get("currentCurriculumDay")
             if dnum and dnum not in days:
                 days = days + [dnum]
                 session_updates["curriculumDaysCovered"] = days
@@ -151,6 +161,16 @@ class InterviewController:
             if t and t not in topics:
                 topics = topics + [t]
                 session_updates["topicsCovered"] = topics
+
+            # Update currentCurriculumDay and manage follow_up_count
+            if dnum != prev_day:
+                # moved to a new day -> reset follow-up counter
+                session_updates["currentCurriculumDay"] = dnum
+                session_updates["follow_up_count"] = 0
+            else:
+                # same day: if this question was a follow-up, increment the counter
+                if follow_up_needed and session.get("follow_up_count", 0) == 0 and decision.get("is_follow_up", False):
+                    session_updates["follow_up_count"] = 1
 
         # Apply updates
         self.session_service.update_session(session_id, session_updates)
