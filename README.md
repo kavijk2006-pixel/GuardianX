@@ -7,7 +7,9 @@ GuardianX is an AI Technical Interviewer platform that generates persona-driven,
 ## 🌐 Live Web Application
 
 - 🚀🚀 Global Public Web App (HTTPS)	https://kavijk2006-pixel.github.io/GuardianX/	Live globally on any mobile phone (iPhone/Android), tablet, or desktop over cellular data or Wi-Fi.
+- 
 ⚡ Local Dev Web Server	http://127.0.0.1:3000/GuardianX_Web_App.html	Active local server running on port 3000.
+
 🐙 GitHub Repository	https://github.com/kavijk2006-pixel/GuardianX	Fully synchronized main branch with complete source code & documentation.
 ## ✨ Key Features
 
