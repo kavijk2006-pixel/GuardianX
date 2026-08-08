@@ -1,24 +1,45 @@
 from typing import Dict, Any, Optional, List
+from backend.llm.provider import LLMProvider
 
 
 class Interviewer:
-    """Deterministic interviewer used for development and testing.
-    Decides the next question based on candidate and curriculum context and previous state.
+    """AI Interviewer agent that generates persona-driven, human-sounding technical questions
+    and adaptive follow-ups tailored to candidate experience and curriculum context.
     """
 
-    def __init__(self):
-        pass
+    def __init__(self, llm_provider: Optional[LLMProvider] = None):
+        self.llm = llm_provider or LLMProvider()
 
-    def _format_question_from_day(self, day: Dict[str, Any], difficulty: str, role: str) -> str:
-        title = day.get("title", "a topic")
+    def _generate_question_prompt(self, candidate_context: Dict[str, Any], day: Dict[str, Any], difficulty: str, is_first: bool = False) -> str:
+        member = candidate_context.get("member", {})
+        name = member.get("name", "Candidate")
+        role = member.get("jobRole", "Software Engineer")
+        skills = member.get("skills", [])
+        resume_summary = member.get("resumeSummary", "") or member.get("resumeText", "")
+        title = day.get("title", "Technical Architecture")
         objectives = day.get("objectives", [])
-        seed = objectives[0] if objectives else "Explain the core ideas"
-        q = f"On '{title}' ({day.get('type','')}) — {seed}."
-        if role:
-            q = f"As a {role}, {q} Please answer at a {difficulty} level."
-        else:
-            q = f"{q} Please answer at a {difficulty} level."
-        return q
+        obj_text = ", ".join(objectives[:2]) if objectives else "core engineering principles"
+
+        skills_str = f" with expertise in {', '.join(skills[:3])}" if skills else ""
+
+        if is_first:
+            if resume_summary:
+                snippet = (resume_summary[:120] + "...") if len(resume_summary) > 120 else resume_summary
+                return (
+                    f"Hello {name}! Welcome to your technical interview. I reviewed your resume highlighting: '{snippet}'. "
+                    f"Given your target role as a {role}{skills_str}, let's begin with {title}. "
+                    f"Could you walk me through your experience with {obj_text}?"
+                )
+            return (
+                f"Hello {name}! Welcome to your technical interview today. Given your background as a {role}{skills_str}, "
+                f"let's begin with {title}. Could you walk me through your experience with {obj_text} and how you apply it in practice?"
+            )
+        
+        return (
+            f"Moving on to {title}: as a {role}{skills_str}, how do you approach {obj_text}? "
+            f"Please share a concrete architectural decision or implementation example."
+        )
+
 
     def decide_next_question(self,
                              candidate_context: Dict[str, Any],
@@ -28,21 +49,32 @@ class Interviewer:
                              latest_answer_evaluation: Optional[Dict[str, Any]] = None,
                              force_follow_up: bool = False
                              ) -> Dict[str, Any]:
-        """Return a structured decision dict.
-        Follow-up is used only when the controller explicitly requests it.
-        Otherwise choose an uncovered curriculum day/topic.
-        """
-        role = candidate_context.get("member", {}).get("jobRole", "")
-        covered_days = set(interview_state.get("curriculumDaysCovered", []))
 
-        # The controller owns the follow-up limit. Only honor an explicit request.
+        role = candidate_context.get("member", {}).get("jobRole", "Software Engineer")
+        name = candidate_context.get("member", {}).get("name", "Candidate")
+        covered_days = set(interview_state.get("curriculumDaysCovered", []))
+        questions_asked = interview_state.get("questionsAsked", 0)
+
+        # Handle follow-up request
         if force_follow_up:
-            last_topic = interview_state.get("currentTopic")
+            last_topic = interview_state.get("currentTopic", "your previous answer")
             difficulty = interview_state.get("currentDifficulty") or "foundation"
-            reason = "Could you clarify your approach?"
-            if latest_answer_evaluation:
-                reason = latest_answer_evaluation.get("follow_up_reason") or reason
-            question = f"Quick clarification: {reason}"
+            reason = "Could you elaborate further on your technical implementation?"
+            if latest_answer_evaluation and latest_answer_evaluation.get("follow_up_reason"):
+                reason = latest_answer_evaluation.get("follow_up_reason")
+            
+            # Extract last answer for context
+            last_candidate_msg = ""
+            for entry in reversed(conversation_history):
+                if entry.get("from") == "candidate":
+                    last_candidate_msg = entry.get("text", "")
+                    break
+
+            if last_candidate_msg:
+                question = f"That's a helpful point regarding {last_topic}. {reason}"
+            else:
+                question = f"Could you clarify your approach regarding {last_topic}? {reason}"
+
             return {
                 "question": question,
                 "curriculum_day": interview_state.get("currentCurriculumDay"),
@@ -52,7 +84,11 @@ class Interviewer:
                 "is_follow_up": True,
             }
 
-        # Selection order: skipped, repeated, completed, then other.
+        # Select next curriculum topic
+        selected_day = None
+        qtype = "concept"
+        difficulty = "concept"
+
         for kind in ["skipped", "repeated", "completed", "other"]:
             candidates = curriculum_context.get(kind, [])
             for day in candidates:
@@ -61,6 +97,7 @@ class Interviewer:
                 dnum = day.get("day")
                 if dnum in covered_days:
                     continue
+                selected_day = day
                 if kind == "skipped":
                     difficulty = "foundation"
                     qtype = "foundation"
@@ -73,43 +110,32 @@ class Interviewer:
                 else:
                     difficulty = "concept"
                     qtype = "concept"
-
-                question = self._format_question_from_day(day, difficulty, role)
-                return {
-                    "question": question,
-                    "curriculum_day": dnum,
-                    "topic": day.get("title"),
-                    "difficulty": difficulty,
-                    "question_type": qtype,
-                    "is_follow_up": False,
-                }
-
-        # Fallback: ask about an uncovered day if one exists.
-        fallback_day = None
-        for d in curriculum_context.get("other", []):
-            if d and d.get("day") not in covered_days:
-                fallback_day = d
                 break
-        if not fallback_day and curriculum_context.get("other"):
-            fallback_day = curriculum_context.get("other")[0]
+            if selected_day:
+                break
 
-        if fallback_day:
-            dnum = fallback_day.get("day")
-            question = self._format_question_from_day(fallback_day, "concept", role)
+        if not selected_day and curriculum_context.get("other"):
+            selected_day = curriculum_context.get("other")[0]
+
+        if selected_day:
+            dnum = selected_day.get("day")
+            is_first = (questions_asked == 0)
+            question = self._generate_question_prompt(candidate_context, selected_day, difficulty, is_first)
             return {
                 "question": question,
                 "curriculum_day": dnum,
-                "topic": fallback_day.get("title"),
-                "difficulty": "concept",
-                "question_type": "concept",
+                "topic": selected_day.get("title"),
+                "difficulty": difficulty,
+                "question_type": qtype,
                 "is_follow_up": False,
             }
 
         return {
-            "question": "Tell me about a technical project you built during the cohort and a key decision you made.",
+            "question": f"Reflecting on your experience as a {role}, what is the most complex technical challenge or system trade-off you solved, and what lessons did you take away?",
             "curriculum_day": None,
-            "topic": "capstone",
+            "topic": "System Design & Capstone",
             "difficulty": "application",
             "question_type": "open",
             "is_follow_up": False,
         }
+
