@@ -1,0 +1,12 @@
+[
+  "tests/test_api.py::test_api_full_interview_reaches_completion",
+  "tests/test_api.py::test_api_start_missing_sessionId",
+  "tests/test_api.py::test_api_start_with_candidate_and_turns_and_errors",
+  "tests/test_candidates.py::test_load_candidate_cand_004",
+  "tests/test_curriculum.py::test_load_curriculum_and_relevance",
+  "tests/test_interview_controller.py::test_conversation_flow_and_followups_and_completion_limits",
+  "tests/test_interview_controller.py::test_session_isolation_between_two_interviews",
+  "tests/test_interview_controller.py::test_start_interview_and_first_question",
+  "tests/test_session_service.py::test_create_get_update_delete_session",
+  "tests/test_session_service.py::test_session_isolation_and_unknown_handling"
+]
