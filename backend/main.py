@@ -1,3 +1,5 @@
+import json
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -22,6 +24,26 @@ session_service = SessionService()
 curriculum_service = CurriculumService()
 candidate_service = CandidateService()
 interview_controller = InterviewController(session_service, curriculum_service)
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+
+
+@app.get('/candidates.json')
+async def get_candidates():
+    path = REPO_ROOT / "candidates.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="candidates.json not found")
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+@app.get('/curriculum.json')
+async def get_curriculum():
+    path = REPO_ROOT / "curriculum.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="curriculum.json not found")
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 class StartRequest(BaseModel):
@@ -67,3 +89,4 @@ async def interview(payload: dict):
         return result
 
     raise HTTPException(status_code=400, detail="Invalid request payload")
+
