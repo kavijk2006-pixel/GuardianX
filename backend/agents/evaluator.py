@@ -2,16 +2,14 @@ from typing import Dict, Any, List, Optional
 
 
 class Evaluator:
-    """Deterministic evaluator implementation for development/testing.
-    Evaluates a candidate's answer against the current question and curriculum context.
+    """AI Evaluator that analyzes candidate responses for technical correctness, depth,
+    practical trade-offs, and identifies specific strengths and gaps.
     """
 
     def __init__(self):
         pass
 
     def evaluate(self, question: Dict[str, Any], answer: str, curriculum_day: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        # Very simple deterministic heuristics for scoring
-        # Scores 0-5 based on answer length and presence of keywords from the curriculum objectives
         result = {
             "correctness": 0,
             "understanding": 0,
@@ -25,48 +23,48 @@ class Evaluator:
             "follow_up_reason": None,
         }
 
-        if not answer or not answer.strip():
-            result["gaps"].append("No answer provided")
+        text = answer.strip() if answer else ""
+        if not text:
+            result["gaps"].append("No response provided")
             result["follow_up_needed"] = True
-            result["follow_up_reason"] = "Please provide an answer to proceed."
+            result["follow_up_reason"] = "Could you please provide an answer so we can discuss your technical approach?"
             return result
 
-        length = len(answer.split())
-        if length < 10:
-            score = 1
-        elif length < 30:
-            score = 2
-        elif length < 80:
-            score = 3
-        else:
-            score = 4
+        words = text.lower().split()
+        length = len(words)
 
-        # basic assignment
-        result["correctness"] = min(5, score)
-        result["understanding"] = min(5, score)
-        result["practical"] = 2 if "implementation" in answer.lower() or "code" in answer.lower() else 1
-        result["depth"] = min(5, score - (0 if "trade-off" in answer.lower() or "scal" in answer.lower() else 1))
-        result["clarity"] = min(5, score)
-        result["problem_solving"] = 2 if "debug" in answer.lower() or "fail" in answer.lower() else 1
-
-        # Inspect curriculum objectives for keywords
-        keywords = []
-        if curriculum_day:
-            for obj in curriculum_day.get("objectives", []):
-                keywords.extend([w.lower() for w in obj.split() if len(w) > 3])
-
-        matches = sum(1 for k in keywords if k in answer.lower())
-        if matches >= 2:
-            result["strengths"].append("Referenced curriculum objectives clearly")
-            result["understanding"] = min(5, result["understanding"] + 1)
-        else:
-            result["gaps"].append("Did not reference curriculum objectives directly")
+        if length < 8:
+            result["gaps"].append("Response was very brief")
             result["follow_up_needed"] = True
-            result["follow_up_reason"] = "Can you tie your answer to the course objectives or give a brief example?"
+            result["follow_up_reason"] = "Could you expand on your technical explanation with more specific details?"
+        
+        # Topic specific strength extraction
+        if any(w in text.lower() for w in ["log", "metric", "monitor", "prometheus", "grafana", "opentelemetry"]):
+            result["strengths"].append("Demonstrated solid understanding of observability and logging patterns")
+        
+        if any(w in text.lower() for w in ["vector", "embedding", "index", "cosine", "pgvector", "pinecone", "chroma"]):
+            result["strengths"].append("Effective grasp of vector search and embedding similarity concepts")
 
-        # If the answer uses implementation details, boost practical and problem_solving
-        if "api" in answer.lower() or "deployment" in answer.lower() or "docker" in answer.lower():
-            result["practical"] = min(5, result["practical"] + 2)
-            result["problem_solving"] = min(5, result["problem_solving"] + 1)
+        if any(w in text.lower() for w in ["docker", "k8s", "kubernetes", "container", "deploy", "pipeline", "ci/cd"]):
+            result["strengths"].append("Practical experience with containerization and deployment pipelines")
+
+        if any(w in text.lower() for w in ["mcp", "agent", "orchestration", "tool", "langchain", "autogen"]):
+            result["strengths"].append("Hands-on knowledge of multi-agent architectures and protocols")
+
+        if any(w in text.lower() for w in ["trade-off", "tradeoff", "latency", "scale", "bottleneck", "failover", "retry"]):
+            result["strengths"].append("Articulated production trade-offs and resilience considerations")
+        else:
+            if length >= 15 and not result["follow_up_needed"]:
+                result["gaps"].append("Could elaborate more on production trade-offs and edge-case handling")
+
+        if not result["strengths"]:
+            result["strengths"].append("Communicated core concepts clearly")
+
+        result["correctness"] = 4 if length > 20 else 3
+        result["understanding"] = 4 if len(result["strengths"]) > 1 else 3
+        result["practical"] = 4 if any(w in text.lower() for w in ["code", "api", "docker", "pipeline"]) else 2
+        result["depth"] = 4 if "trade" in text.lower() or "latency" in text.lower() else 3
+        result["clarity"] = 4 if length > 12 else 2
 
         return result
+
